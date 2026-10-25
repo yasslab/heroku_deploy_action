@@ -74,9 +74,10 @@ runs:
         EMAIL:  ${{ inputs.heroku_email }}
       run: |
         set -euo pipefail
-        # Heroku のアプリ名は小文字・数字・ハイフンだけ。前後の空白を除き、それ以外の形なら push の URL が壊れるので止める
-        APP="${APP//[[:space:]]/}"
-        [[ "$APP" =~ ^[a-z][a-z0-9-]*$ ]] || { echo "::error::heroku_app_name が Heroku のアプリ名の形（小文字・数字・ハイフン）ではありません"; exit 1; }
+        # Heroku のアプリ名は小文字・数字・ハイフンだけ。前後の空白だけを除き、それ以外の形なら止める。
+        # 中の空白は消さない（"my app" を myapp にすると、同じ鍵で push できる別のアプリに届きうる）
+        [[ "$APP" =~ ^[[:space:]]*([a-z][a-z0-9-]*)[[:space:]]*$ ]] || { echo "::error::heroku_app_name が Heroku のアプリ名の形（小文字・数字・ハイフン）ではありません"; exit 1; }
+        APP="${BASH_REMATCH[1]}"
         # 前の手順が作ったファイルもデプロイに含める（akhileshns/heroku-deploy と同じ振る舞い・同じ文言）
         if [ -n "$(git status --porcelain)" ]; then
           git -c user.name="Heroku-Deploy" -c user.email="$EMAIL" add -A
@@ -100,7 +101,8 @@ runs:
         ROLLBACK: ${{ inputs.rollbackonhealthcheckfailed }}
       run: |
         set -uo pipefail
-        APP="${APP//[[:space:]]/}"
+        # ロールバックの --app に使うので、push と同じく前後の空白だけを除く
+        [[ "$APP" =~ ^[[:space:]]*([^[:space:]]*)[[:space:]]*$ ]] && APP="${BASH_REMATCH[1]}"
         sleep "$DELAY"
         # 応答が無い時にジョブの上限まで待たないよう、30 秒で打ち切る。
         # curl が失敗しても -w は 000 を出すので、|| true で止めずに続ける
