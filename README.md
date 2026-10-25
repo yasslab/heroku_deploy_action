@@ -36,6 +36,8 @@ YassLab チームのアプリを、Git で Heroku にデプロイするための
 
 本番の API キーを持って本番へ push する action なので、呼ぶ側では **tag ではなく SHA で固定** し、末尾に版をコメントで添えてください。
 
+入力の前後の空白・改行は除きます。`heroku_app_name` が Heroku のアプリ名の形（小文字・数字・ハイフン）でない時と、`heroku_api_key`・`heroku_email` が空の時は、push する前に失敗にします。
+
 | 入力 | 必須 | 既定 | 説明 |
 |---|---|---|---|
 | `heroku_api_key` | ✅ | | Heroku の API キー（secrets から渡す） |
