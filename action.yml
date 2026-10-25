@@ -51,10 +51,15 @@ runs:
         HEROKU_API_KEY_INPUT: ${{ inputs.heroku_api_key }}
         HEROKU_EMAIL_INPUT:   ${{ inputs.heroku_email }}
       run: |
+        set -euo pipefail
+        # secrets を貼った時に入りがちな前後の空白・改行を除く（API キーとメールアドレスは中に空白を含まない）
+        key="${HEROKU_API_KEY_INPUT//[[:space:]]/}"
+        email="${HEROKU_EMAIL_INPUT//[[:space:]]/}"
+        [ -n "$key" ] && [ -n "$email" ] || { echo "::error::heroku_api_key と heroku_email が空です"; exit 1; }
         umask 077
         {
-          printf 'machine api.heroku.com\n  login %s\n  password %s\n' "$HEROKU_EMAIL_INPUT" "$HEROKU_API_KEY_INPUT"
-          printf 'machine git.heroku.com\n  login %s\n  password %s\n' "$HEROKU_EMAIL_INPUT" "$HEROKU_API_KEY_INPUT"
+          printf 'machine api.heroku.com\n  login %s\n  password %s\n' "$email" "$key"
+          printf 'machine git.heroku.com\n  login %s\n  password %s\n' "$email" "$key"
         } > ~/.netrc
         # umask は新しく作るファイルにしか効かないので、既にあった時のために権限を直す
         chmod 600 ~/.netrc
@@ -69,6 +74,10 @@ runs:
         EMAIL:  ${{ inputs.heroku_email }}
       run: |
         set -euo pipefail
+        # Heroku のアプリ名は小文字・数字・ハイフンだけ。前後の空白だけを除き、それ以外の形なら止める。
+        # 中の空白は消さない（"my app" を myapp にすると、同じ鍵で push できる別のアプリに届きうる）
+        [[ "$APP" =~ ^[[:space:]]*([a-z][a-z0-9-]*)[[:space:]]*$ ]] || { echo "::error::heroku_app_name が Heroku のアプリ名の形（小文字・数字・ハイフン）ではありません"; exit 1; }
+        APP="${BASH_REMATCH[1]}"
         # 前の手順が作ったファイルもデプロイに含める（akhileshns/heroku-deploy と同じ振る舞い・同じ文言）
         if [ -n "$(git status --porcelain)" ]; then
           git -c user.name="Heroku-Deploy" -c user.email="$EMAIL" add -A
@@ -92,6 +101,8 @@ runs:
         ROLLBACK: ${{ inputs.rollbackonhealthcheckfailed }}
       run: |
         set -uo pipefail
+        # ロールバックの --app に使うので、push と同じく前後の空白だけを除く
+        [[ "$APP" =~ ^[[:space:]]*([^[:space:]]*)[[:space:]]*$ ]] && APP="${BASH_REMATCH[1]}"
         sleep "$DELAY"
         # 応答が無い時にジョブの上限まで待たないよう、30 秒で打ち切る。
         # curl が失敗しても -w は 000 を出すので、|| true で止めずに続ける
