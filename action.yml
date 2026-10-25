@@ -1,0 +1,108 @@
+name: 'Heroku deploy for YassLab'
+description: 'Git で Heroku にデプロイする（akhileshns/heroku-deploy のうち、YassLab が使う機能だけを持つ）'
+author: 'YassLab Inc.'
+
+branding:
+  icon:  'upload-cloud'
+  color: 'purple'
+
+# akhileshns/heroku-deploy（Copyright (c) 2020 AkhileshNS, MIT License）を元に、
+# YassLab が使う機能だけを shell で書き直した。入力の名前と振る舞いは元の action に合わせている。
+#
+# API キーは呼ぶ側の secrets から渡す。この action には秘密の値を書かない。
+# 入力は run: に直接埋め込まず、env: 経由で渡す（コマンドの注入を避ける）
+inputs:
+  heroku_api_key:
+    description: 'Heroku の API キー'
+    required: true
+  heroku_app_name:
+    description: 'デプロイ先の Heroku のアプリ名'
+    required: true
+  heroku_email:
+    description: 'Heroku のアカウントのメールアドレス（~/.netrc の login と、自動コミットの作者に使う）'
+    required: true
+  branch:
+    description: 'push する手元のブランチ（既定は HEAD）'
+    required: false
+    default: 'HEAD'
+  healthcheck:
+    description: 'デプロイ後に 200 が返るかを確かめる URL。空なら確かめない'
+    required: false
+    default: ''
+  delay:
+    description: 'healthcheck の前に待つ秒数'
+    required: false
+    default: '0'
+  rollbackonhealthcheckfailed:
+    description: 'healthcheck が 200 でなければ、直前のリリースに戻す（heroku CLI が要る）'
+    required: false
+    default: 'false'
+  justlogin:
+    description: '~/.netrc に書いてログインするだけで、デプロイしない'
+    required: false
+    default: 'false'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Log in to Heroku (~/.netrc)
+      shell: bash
+      env:
+        HEROKU_API_KEY_INPUT: ${{ inputs.heroku_api_key }}
+        HEROKU_EMAIL_INPUT:   ${{ inputs.heroku_email }}
+      run: |
+        umask 077
+        {
+          printf 'machine api.heroku.com\n  login %s\n  password %s\n' "$HEROKU_EMAIL_INPUT" "$HEROKU_API_KEY_INPUT"
+          printf 'machine git.heroku.com\n  login %s\n  password %s\n' "$HEROKU_EMAIL_INPUT" "$HEROKU_API_KEY_INPUT"
+        } > ~/.netrc
+        # umask は新しく作るファイルにしか効かないので、既にあった時のために権限を直す
+        chmod 600 ~/.netrc
+        echo "Wrote ~/.netrc"
+
+    - name: Push to Heroku
+      if: inputs.justlogin != 'true'
+      shell: bash
+      env:
+        APP:    ${{ inputs.heroku_app_name }}
+        BRANCH: ${{ inputs.branch }}
+        EMAIL:  ${{ inputs.heroku_email }}
+      run: |
+        set -euo pipefail
+        # 前の手順が作ったファイルもデプロイに含める（akhileshns/heroku-deploy と同じ振る舞い・同じ文言）
+        if [ -n "$(git status --porcelain)" ]; then
+          git -c user.name="Heroku-Deploy" -c user.email="$EMAIL" add -A
+          git -c user.name="Heroku-Deploy" -c user.email="$EMAIL" commit -m "Commited changes from previous actions"
+        fi
+        # 浅い clone のままだと Heroku が受け付けない
+        if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+          git fetch --prune --unshallow
+        fi
+        # 強制 push はしない。後から動いた古い回が本番を古いコミットに戻すのを防ぐため、
+        # 早送りにならない push は Heroku に拒否させ、その回のデプロイを失敗にする
+        git push "https://git.heroku.com/${APP}.git" "${BRANCH}:refs/heads/main"
+
+    - name: Health check
+      if: inputs.justlogin != 'true' && inputs.healthcheck != ''
+      shell: bash
+      env:
+        APP:      ${{ inputs.heroku_app_name }}
+        URL:      ${{ inputs.healthcheck }}
+        DELAY:    ${{ inputs.delay }}
+        ROLLBACK: ${{ inputs.rollbackonhealthcheckfailed }}
+      run: |
+        set -uo pipefail
+        sleep "$DELAY"
+        # 応答が無い時にジョブの上限まで待たないよう、30 秒で打ち切る。
+        # curl が失敗しても -w は 000 を出すので、|| true で止めずに続ける
+        status=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$URL" || true)
+        echo "Health check: $URL -> $status"
+        if [ "$status" != "200" ]; then
+          if [ "$ROLLBACK" = "true" ]; then
+            heroku rollback --app "$APP"
+            echo "::error::Health check failed ($status). Rolled back to the previous release."
+          else
+            echo "::error::Health check failed ($status)."
+          fi
+          exit 1
+        fi
