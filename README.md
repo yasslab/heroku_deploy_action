@@ -49,9 +49,9 @@ YassLab チームのアプリを、Git で Heroku にデプロイするための
 
 <br>
 
-## 謝辞
+## Acknowledgments
 
-この action は、[AkhileshNS](https://github.com/AkhileshNS) さんの [akhileshns/heroku-deploy](https://github.com/AkhileshNS/heroku-deploy)（MIT License）を元にしています。入力の名前・振る舞い（自動コミットとその文言・`--unshallow`・ヘルスチェックとロールバック・`justlogin`）は、元の action の設計をそのまま受け継ぎ、YassLab が使う機能だけを shell で書き直しました。長く使わせていただき、ありがとうございました。
+This action is derived from [akhileshns/heroku-deploy](https://github.com/AkhileshNS/heroku-deploy) by [AkhileshNS](https://github.com/AkhileshNS) (MIT License). The input names and behaviors (the auto-commit and its message, `--unshallow`, the health check with rollback, and `justlogin`) follow the design of the original action as they are; we rewrote only the features YassLab uses as a small shell script. We have relied on your action for years. Thank you very much, AkhileshNS!
 
 ## ライセンス
 
